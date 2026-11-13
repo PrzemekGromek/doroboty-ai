@@ -13,7 +13,8 @@ import {
   contractLabels,
 } from "@/features/jobs/presentation";
 import { currentPerson, jobSchema } from "./model";
-import { usePrototype } from "./store";
+import posthog from "posthog-js";
+import { posthogIsConfigured, usePrototype } from "./store";
 import { Field } from "./workspace";
 import { Empty, NotFound, PageTitle } from "./shell";
 
@@ -133,7 +134,23 @@ export function EmployerJobEditor() {
       );
       return;
     }
-    if (run({ type: "publish", job: parsed.data })) navigate("/app/oferty");
+    if (run({ type: "publish", job: parsed.data })) {
+      if (posthogIsConfigured()) {
+        posthog.capture("job_published", {
+          is_new: !existing,
+          job_category: parsed.data.category,
+          remote_status: parsed.data.remoteStatus,
+          seniority: parsed.data.seniority,
+        });
+        posthog.logger.info("job published", {
+          is_new: !existing,
+          job_category: parsed.data.category,
+          remote_status: parsed.data.remoteStatus,
+          seniority: parsed.data.seniority,
+        });
+      }
+      navigate("/app/oferty");
+    }
   }
   return (
     <>
@@ -171,6 +188,7 @@ export function EmployerJobEditor() {
                 `${title}\n\nO roli\n${source.trim().slice(0, 10000)}\n\nJak pracujemy\nŁączymy potrzeby użytkowników, odpowiedzialne wykorzystanie AI i mierzalne efekty.\n\nProces rekrutacji\nPrześlij aplikację i opowiedz o projekcie, w którym Twoje decyzje wpłynęły na wynik.`,
               );
               setApproved(false);
+              if (posthogIsConfigured()) posthog.capture("job_description_generated");
             }}
           >
             Przygotuj opis z AI
@@ -286,8 +304,10 @@ export function CompanyEditor() {
         name: String(data.get("name")),
         description: String(data.get("description")),
       })
-    )
+    ) {
+      if (posthogIsConfigured()) posthog.capture("company_profile_saved");
       setMessage("Dane firmy zostały zapisane.");
+    }
   }
   return (
     <>
