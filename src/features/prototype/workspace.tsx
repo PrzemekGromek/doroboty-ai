@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { JobCard } from "@/features/jobs/job-card";
 import { ApplicationOfferPreview } from "@/features/jobs/application-offer-preview";
-import { usePrototype } from "./store";
+import posthog from "posthog-js";
+import { identifyPerson, posthogIsConfigured, resetPersonIdentity, usePrototype } from "./store";
 import { currentPerson, publishedJobs, stageLabels, MIN_APPLICATION_ANSWER_LENGTH } from "./model";
 import { PageTitle, Empty, NotFound, Notice } from "./shell";
 import { CvAttachment } from "./cv-attachment";
@@ -50,7 +51,12 @@ export function PersonPicker() {
             <Button
               variant="outline"
               onClick={() => {
-                run({ type: "select_person", id: person.id });
+                if (!run({ type: "select_person", id: person.id })) return;
+                if (state.activePersonId && state.activePersonId !== person.id)
+                  resetPersonIdentity();
+                identifyPerson(person);
+                if (posthogIsConfigured())
+                  posthog.capture("person_selected", { role: person.role });
                 navigate(
                   person.role === "candidate"
                     ? (safeNext ?? "/app")
@@ -156,8 +162,10 @@ export function ProfilePage({ preview = false }: { preview?: boolean }) {
           location: String(data.get("location")),
         },
       })
-    )
+    ) {
+      if (posthogIsConfigured()) posthog.capture("profile_saved");
       setMessage("Profil został zapisany.");
+    }
   }
   return (
     <>
@@ -281,7 +289,20 @@ export function ApplyPage() {
       document.getElementById("application-consent")?.focus();
       return;
     }
-    if (run({ type: "submit", jobId: job!.id, notes, generated, answer, consent })) {
+    const submittedJob = job!;
+    if (run({ type: "submit", jobId: submittedJob.id, notes, generated, answer, consent })) {
+      if (posthogIsConfigured()) {
+        posthog.capture("application_submitted", {
+          job_category: submittedJob.category,
+          remote_status: submittedJob.remoteStatus,
+          seniority: submittedJob.seniority,
+        });
+        posthog.logger.info("application submitted", {
+          job_category: submittedJob.category,
+          remote_status: submittedJob.remoteStatus,
+          seniority: submittedJob.seniority,
+        });
+      }
       submittedOnce.current = true;
       setSubmitted(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -387,8 +408,10 @@ export function ApplyPage() {
                 disabled={submitted}
                 variant="outline"
                 onClick={() => {
-                  if (run({ type: "draft", jobId: job.id, notes, generated, answer }))
+                  if (run({ type: "draft", jobId: job.id, notes, generated, answer })) {
+                    if (posthogIsConfigured()) posthog.capture("application_draft_saved");
                     setMessage("Szkic został zapisany.");
+                  }
                 }}
               >
                 Zapisz szkic

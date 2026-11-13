@@ -22,7 +22,8 @@ import {
   contractLabels,
 } from "@/features/jobs/presentation";
 import type { JobWithCompany } from "@/features/jobs/types";
-import { usePrototype } from "./store";
+import posthog from "posthog-js";
+import { posthogIsConfigured, usePrototype } from "./store";
 import { currentPerson, publishedJobs } from "./model";
 import { NotFound } from "./shell";
 import { cn } from "@/lib/utils";
@@ -145,6 +146,14 @@ export function JobsPage() {
       const value = String(data.get(key) ?? "").trim();
       if (value) next.set(key, value);
       else next.delete(key);
+    }
+    const searchFilters = parseJobFilters(Object.fromEntries(next));
+    if (posthogIsConfigured()) {
+      posthog.capture("job_search_submitted", {
+        has_location: Boolean(searchFilters.location),
+        has_query: Boolean(searchFilters.query),
+        result_count: filterJobs(all, searchFilters).length,
+      });
     }
     setParams(next);
   }
@@ -430,7 +439,18 @@ export function JobPage() {
                     variant="outline"
                     aria-label="Zapisz ofertę"
                     aria-pressed={saved}
-                    onClick={() => run({ type: "toggle_saved", jobId: job.id })}
+                    onClick={() => {
+                      if (
+                        run({ type: "toggle_saved", jobId: job.id }) &&
+                        !saved &&
+                        posthogIsConfigured()
+                      ) {
+                        posthog.capture("job_saved", {
+                          job_category: job.category,
+                          remote_status: job.remoteStatus,
+                        });
+                      }
+                    }}
                   >
                     <Bookmark className={cn(saved && "fill-current")} />
                     Zapisz ofertę
